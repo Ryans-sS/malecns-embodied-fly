@@ -174,3 +174,4 @@ MUJOCO_LOG.TXT
 
 # Local virtualenv (the upstream rule only covers a bare ".venv" entry)
 .venv/
+.github/workflows/
