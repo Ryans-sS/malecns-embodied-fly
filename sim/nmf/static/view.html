@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroMechFly Dish</title>
+<style>
+  :root{
+    --bg:#f3f4f6; --card:#fff; --head:#f7f8fa; --line:#dfe3e8; --line2:#eceff2;
+    --fg:#1f2933; --dim:#5b6b7c; --dim2:#8795a4; --accent:#1d6fd0; --good:#1f9d55;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);overflow:hidden;
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  #app{display:grid;grid-template-rows:auto 1fr;height:100%}
+  header{display:flex;align-items:center;background:var(--card);height:48px;padding:0 16px;
+    border-bottom:1px solid var(--line)}
+  .brand{font-weight:650;font-size:14px;margin-right:18px}
+  .brand span{color:var(--dim2);font-weight:400}
+  .metrics{display:flex;height:100%}
+  .metric{display:flex;flex-direction:column;justify-content:center;padding:0 15px;
+    border-left:1px solid var(--line2);min-width:78px}
+  .metric b{font-size:13px;font-variant-numeric:tabular-nums;line-height:1.25}
+  .metric span{font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em}
+  .pill{margin-left:auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;
+    font-weight:600;padding:5px 12px;border-radius:999px;background:#e8f5ee;color:var(--good);
+    border:1px solid #bfe3cd}
+  .pill i{width:7px;height:7px;border-radius:50%;background:currentColor}
+  #wrap{display:grid;grid-template-columns:1.62fr 0.95fr 320px;gap:12px;padding:12px;
+    min-height:0;overflow:hidden}
+  @media (max-width:1200px){#wrap{grid-template-columns:1fr 300px}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:6px;
+    display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .card>h2{margin:0;padding:9px 13px;font-size:11.5px;font-weight:650;color:var(--dim);
+    background:var(--head);border-bottom:1px solid var(--line);display:flex;
+    justify-content:space-between;align-items:center;gap:10px}
+  .card>h2 em{font-style:normal;font-weight:400;color:var(--dim2);font-size:11px}
+  .card>h2 span#camlabel{font-weight:400;color:var(--dim2);font-size:11px}
+  .view{flex:1;min-height:0;background:#11161c;display:grid;place-items:center;overflow:hidden}
+  .view img{max-width:100%;max-height:100%;display:block}
+  .split{display:grid;grid-template-rows:1fr 1fr;gap:12px;min-height:0}
+  #side{display:flex;flex-direction:column;gap:12px;overflow-y:auto;min-height:0}
+  #side>.card{flex:0 0 auto}
+  .body{padding:11px 13px}
+  table.kv{width:100%;border-collapse:collapse}
+  table.kv td{padding:4px 0;font-size:12.5px;border-bottom:1px solid var(--line2)}
+  table.kv tr:last-child td{border-bottom:none}
+  table.kv td:first-child{color:var(--dim)}
+  table.kv td:last-child{text-align:right;font-weight:550;font-variant-numeric:tabular-nums}
+  .pad{display:flex;align-items:center;gap:9px;padding:5px 0;border-bottom:1px solid var(--line2)}
+  .pad:last-child{border-bottom:none}
+  .sw{width:10px;height:10px;border-radius:2px}
+  .pad b{flex:1;font-size:12.5px;font-weight:600}
+  .pad em{font-style:normal;color:var(--dim2);font-size:11px;font-variant-numeric:tabular-nums}
+  .foot{font-size:11px;color:var(--dim2);line-height:1.55;padding:10px 13px;
+    border-top:1px solid var(--line2)}
+  canvas{display:block;width:100%;height:150px}
+  .cams{display:flex;gap:0;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .cams button{border:0;border-left:1px solid var(--line);background:#fff;color:var(--dim);
+    font:inherit;font-size:11px;padding:4px 11px;cursor:pointer}
+  .cams button:first-child{border-left:0}
+  .cams button.on{background:var(--accent);color:#fff;font-weight:600}
+  .cams button:hover:not(.on){background:#eef3f9}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">NeuroMechFly <span>/ MaleCNS dish</span></div>
+    <div class="metrics">
+      <div class="metric"><b id="t">0.0 s</b><span>sim time</span></div>
+      <div class="metric"><b id="rt">—</b><span>realtime</span></div>
+      <div class="metric"><b id="spd">—</b><span>speed</span></div>
+      <div class="metric"><b id="con">—</b><span>contacts</span></div>
+    </div>
+    <span class="pill"><i></i>walking</span>
+  </header>
+
+  <div id="wrap">
+    <div class="card">
+      <h2>Fly <span id="camlabel">hovering above and behind</span>
+        <span class="cams">
+          <button data-cam="hover" class="on">Hover</button><button data-cam="chase">Chase</button><button data-cam="dish">Dish</button><button data-cam="top">Top</button>
+        </span>
+      </h2>
+      <div class="view"><img id="main" alt="fly"></div>
+    </div>
+
+    <div class="split">
+      <div class="card">
+        <h2>What the fly sees <em>721 ommatidia, left eye</em></h2>
+        <div class="view"><img id="omma" alt="ommatidia"></div>
+      </div>
+      <div class="card">
+        <h2>Left eye camera <em>raw, before the retina</em></h2>
+        <div class="view"><img id="eye" alt="eye"></div>
+      </div>
+    </div>
+
+    <div id="side">
+      <div class="card">
+        <h2>Body</h2>
+        <div class="body">
+          <table class="kv">
+            <tr><td>position</td><td id="pos">—</td></tr>
+            <tr><td>heading</td><td id="hd">—</td></tr>
+            <tr><td>height</td><td id="z">—</td></tr>
+            <tr><td>ground contacts</td><td id="con2">—</td></tr>
+            <tr><td>walk drive</td><td id="drv">—</td></tr>
+            <tr><td>turn command</td><td id="trn">—</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Path</h2>
+        <div class="body"><canvas id="map"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>Request pads</h2>
+        <div class="body" id="pads"></div>
+        <div class="foot">
+          Body, legs and eyes are the NeuroMechFly model in MuJoCo: 66 actuated leg
+          degrees of freedom, tarsal adhesion, and 721 ommatidia per eye. Walking is
+          a tripod pattern generator taking a drive and a turn command - the same two
+          signals the MaleCNS brain will supply once it is wired to this body.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLORS={SUGAR:'#d98c0a',WATER:'#1f8fcf',SALT:'#7a5bd0',BITTER:'#c0392b',BLANK:'#8795a4'};
+let path=[], pads=[], R=50;
+
+function draw(){
+  const c=document.getElementById('map'); if(!c) return;
+  const w=c.clientWidth||280, h=150;
+  if(c.width!==w*2){c.width=w*2;c.height=h*2;}
+  const x=c.getContext('2d'), S=Math.min(c.width,c.height)/2-6;
+  x.clearRect(0,0,c.width,c.height);
+  const cx=c.width/2, cy=c.height/2;
+  const toPx=(px,py)=>[cx+px/R*S, cy-py/R*S];
+  x.beginPath(); x.arc(cx,cy,S,0,7); x.strokeStyle='#d3dae1'; x.lineWidth=3; x.stroke();
+  for(const p of pads){
+    const [px,py]=toPx(p.x,p.y);
+    x.beginPath(); x.arc(px,py,6/50*S,0,7);
+    x.fillStyle=COLORS[p.name]||'#999'; x.globalAlpha=.75; x.fill(); x.globalAlpha=1;
+  }
+  if(path.length>1){
+    x.beginPath();
+    path.forEach(([a,b],i)=>{const [px,py]=toPx(a,b); i?x.lineTo(px,py):x.moveTo(px,py);});
+    x.strokeStyle='#1d6fd0'; x.lineWidth=2.5; x.stroke();
+    const [lx,ly]=toPx(...path[path.length-1]);
+    x.beginPath(); x.arc(lx,ly,5,0,7); x.fillStyle='#1f2933'; x.fill();
+  }
+}
+
+async function poll(){
+  try{
+    const s=await fetch('/state').then(r=>r.json());
+    if(s && s.sim_t!==undefined){
+      document.getElementById('t').textContent=s.sim_t.toFixed(1)+' s';
+      document.getElementById('rt').textContent=s.realtime.toFixed(3)+'×';
+      document.getElementById('spd').textContent=s.speed.toFixed(1)+' mm/s';
+      document.getElementById('con').textContent=s.contacts;
+      document.getElementById('pos').textContent=`${s.pos[0]}, ${s.pos[1]} mm`;
+      document.getElementById('hd').textContent=s.heading_deg.toFixed(0)+'°';
+      document.getElementById('z').textContent=s.z.toFixed(2)+' mm';
+      document.getElementById('con2').textContent=s.contacts;
+      document.getElementById('drv').textContent=(s.drive*100).toFixed(0)+' %';
+      document.getElementById('trn').textContent=s.turn.toFixed(2);
+      R=s.dish_r||50; pads=s.pads||[];
+      path.push(s.pos); if(path.length>500) path.shift();
+      document.getElementById('pads').innerHTML=pads.map(p=>
+        `<div class="pad"><span class="sw" style="background:${COLORS[p.name]||'#999'}"></span>`
+        +`<b>${p.name}</b><em>${p.x}, ${p.y}</em></div>`).join('');
+      draw();
+    }
+  }catch(e){}
+  setTimeout(poll, 250);
+}
+poll();
+
+// Refresh the three views by polling rather than holding MJPEG streams open,
+// which exhausted the browser's connection limit.
+let mainCam='hover';
+const CAMNAME={hover:'hovering above and behind', chase:'low chase view',
+               dish:'whole dish, angled', top:'whole dish, from above'};
+function refresh(id, path){
+  const img=document.getElementById(id);
+  const next=new Image();
+  const src = (id==='main') ? ('/frame/'+mainCam) : path;
+  next.onload=()=>{ img.src=next.src; setTimeout(()=>refresh(id,path), 45); };
+  next.onerror=()=>setTimeout(()=>refresh(id,path), 300);
+  next.src=src+'?t='+Date.now();
+}
+document.querySelectorAll('.cams button').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('.cams button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    mainCam=b.dataset.cam;
+    document.getElementById('camlabel').textContent=CAMNAME[mainCam]||mainCam;
+  };
+});
+refresh('main','/frame/hover');
+refresh('omma','/frame/omma');
+refresh('eye','/frame/eye');
+addEventListener('resize', draw);
+</script>
+</body>
+</html>

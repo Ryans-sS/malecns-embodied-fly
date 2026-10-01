@@ -199,6 +199,23 @@ def nanometer_to_flywire_coordinates(coordinates):
     )
 
 
+# MaleCNS is 8nm isotropic, versus FAFB's 4/4/40nm.
+MALECNS_VOXEL_NM = 8
+
+
+def nanometer_to_malecns_coordinates(coordinates):
+    coordinates = tokenize(coordinates)
+    assert len(coordinates) == 3
+    return tuple(round(int(c) / MALECNS_VOXEL_NM) for c in coordinates)
+
+
+def nanometer_to_dataset_coordinates(coordinates, data_version):
+    """Positions are stored in nanometres; each volume has its own voxel size."""
+    if data_version == "malecns":
+        return nanometer_to_malecns_coordinates(coordinates)
+    return nanometer_to_flywire_coordinates(coordinates)
+
+
 def nanos_to_formatted_micros(nanos, degree):
     divisor = pow(1000, degree)
     micros = round(nanos / divisor)

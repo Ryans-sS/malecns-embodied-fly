@@ -197,11 +197,11 @@ def read_csv(filename, num_rows=None, column_idx=None):
             return res
 
     if filename.lower().endswith(".gz"):
-        with gzip.open(filename, "rt") as f:
+        with gzip.open(filename, "rt", encoding="utf-8", newline="") as f:
             reader = csv.reader(f, delimiter=",", quotechar='"')
             return read_from(reader)
     else:
-        with open(filename) as fp:
+        with open(filename, encoding="utf-8", newline="") as fp:
             reader = csv.reader(fp, delimiter=",", quotechar='"')
             return read_from(reader)
 
@@ -210,10 +210,10 @@ def write_csv(filename, rows, compress=False):
     if compress:
         if not filename.lower().endswith(".gz"):
             filename = filename + ".gz"
-        with gzip.open(filename, "wt") as f:
+        with gzip.open(filename, "wt", encoding="utf-8", newline="") as f:
             csv.writer(f, delimiter=",").writerows(rows)
     else:
-        with open(filename, "wt") as fp:
+        with open(filename, "wt", encoding="utf-8", newline="") as fp:
             csv.writer(fp, delimiter=",").writerows(rows)
 
 

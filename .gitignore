@@ -151,3 +151,26 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# ---------------------------------------------------------------------------
+# Local additions: datasets and generated artifacts.
+#
+# None of this belongs in git. The connectome downloads and the DuckDBs built
+# from them run to ~11 GB (the largest single file is 6.4 GB, against GitHub's
+# 100 MB per-file limit), and everything here is reproducible from the scripts
+# in lab/ and sim/. See README.md for how to fetch and rebuild it.
+# ---------------------------------------------------------------------------
+
+# DuckDB query layer, built by lab/build_db.py and lab/build_malecns_db.py
+lab/*.duckdb
+lab/*.duckdb.wal
+
+# Compiled brain and geometry, built by sim/build_brain.py and build_geometry.py
+sim/brain_malecns.npz
+sim/brain_geometry.npz
+
+# MuJoCo scratch output
+MUJOCO_LOG.TXT
+
+# Local virtualenv (the upstream rule only covers a bare ".venv" entry)
+.venv/

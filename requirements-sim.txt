@@ -1,0 +1,20 @@
+# Dependencies for sim/ -- the embodied simulation.
+#
+# These are ON TOP of upstream Codex's own dependencies (see pyproject.toml,
+# installed with `poetry install`), which cover the web explorer but not the
+# physics, the connectome query layer, or the JIT kernel.
+#
+# Versions are the ones this was built and measured against. flygym 2.1.0 in
+# particular is not interchangeable: its composable API (add_joints /
+# add_actuators / add_vision) differs from both 1.x and later 2.x, and its own
+# ground-contact sensors do not compile, so sim/nmf reads contacts from MuJoCo
+# directly.
+
+mujoco==3.9.0          # physics
+flygym==2.1.0          # NeuroMechFly body, retina
+numpy==2.5.3
+scipy==1.18.1
+numba==0.68.0          # JIT synaptic propagation kernel (15.7x over NumPy)
+duckdb==1.5.6          # connectome query layer used by lab/
+flask==3.0.3           # sim/run.py and sim/nmf/serve.py
+pillow==12.3.0         # JPEG encoding for the camera views

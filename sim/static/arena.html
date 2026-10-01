@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fly Arena</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --bg:#f3f4f6; --card:#ffffff; --head:#f7f8fa; --line:#dfe3e8; --line2:#eceff2;
+    --fg:#1f2933; --dim:#5b6b7c; --dim2:#8795a4;
+    --accent:#1d6fd0; --good:#1f9d55; --warn:#c77700; --bad:#c0392b;
+    --scene:#11161c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);overflow:hidden;
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  #app{display:grid;grid-template-rows:auto 1fr;height:100%}
+
+  header{display:flex;align-items:center;background:var(--card);
+    border-bottom:1px solid var(--line);padding:0 16px;height:48px;flex:0 0 auto}
+  header .brand{font-weight:650;font-size:14px;letter-spacing:-.01em;margin-right:18px}
+  header .brand span{color:var(--dim2);font-weight:400}
+  .metrics{display:flex;align-items:stretch;height:100%}
+  .metric{display:flex;flex-direction:column;justify-content:center;padding:0 15px;
+    border-left:1px solid var(--line2);min-width:80px}
+  .metric b{font-size:13px;font-variant-numeric:tabular-nums;line-height:1.25}
+  .metric span{font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em}
+  .pill{margin-left:auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;
+    font-weight:600;padding:5px 12px;border-radius:999px;
+    background:#e8f5ee;color:var(--good);border:1px solid #bfe3cd}
+  .pill.dead{background:#fbeae8;color:var(--bad);border-color:#f0c4be}
+  .pill i{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+  #wrap{display:grid;grid-template-columns:1fr 1fr 372px;gap:12px;padding:12px;
+    min-height:0;overflow:hidden}
+  @media (max-width:1280px){
+    #wrap{grid-template-columns:1fr 352px;grid-template-rows:1fr 320px}
+    #brainpanel{grid-column:1/2}}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:6px;
+    display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .card>h2{margin:0;padding:9px 13px;font-size:11.5px;font-weight:650;color:var(--dim);
+    background:var(--head);border-bottom:1px solid var(--line);flex:0 0 auto;
+    display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .card>h2 em{font-style:normal;font-weight:400;color:var(--dim2);font-size:11px}
+  .scene{flex:1;position:relative;background:var(--scene);min-height:0;overflow:hidden}
+  .scene canvas{display:block}
+  .hint{position:absolute;right:9px;top:8px;font-size:10.5px;color:#7e8c9b;
+    pointer-events:none;z-index:2}
+  .overlay{position:absolute;left:10px;top:8px;font-size:11.5px;color:#d8e2ec;z-index:2;
+    pointer-events:none;background:#11161cbb;padding:2px 7px;border-radius:4px}
+  #legend{position:absolute;left:8px;right:8px;bottom:6px;z-index:2;pointer-events:none;
+    display:flex;flex-wrap:wrap;gap:2px 10px;font-size:10px;color:#aab6c2;
+    background:#11161ccc;padding:4px 7px;border-radius:4px}
+  #legend i{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:4px}
+  #dead{position:absolute;inset:0;display:none;place-items:center;z-index:5;
+    background:#11161cdd}
+  #dead h1{margin:0 0 5px;font-size:17px;color:#ff8a7a;font-weight:600}
+  #dead p{margin:0;color:#aab6c2;font-size:12.5px;text-align:center}
+
+  #side{display:flex;flex-direction:column;gap:12px;overflow-y:auto;min-height:0}
+  /* the side column scrolls; its cards must keep their natural height instead of
+     being squeezed by flex, which was clipping the lower rows of every panel */
+  #side>.card{flex:0 0 auto}
+  #side::-webkit-scrollbar{width:9px}
+  #side::-webkit-scrollbar-thumb{background:#ccd3da;border-radius:9px}
+  .body{padding:11px 13px}
+
+  table.kv{width:100%;border-collapse:collapse}
+  table.kv td{padding:4px 0;font-size:12.5px;border-bottom:1px solid var(--line2)}
+  table.kv tr:last-child td{border-bottom:none}
+  table.kv td:first-child{color:var(--dim);padding-right:10px}
+  table.kv td:last-child{text-align:right;font-variant-numeric:tabular-nums;
+    font-weight:550;white-space:nowrap}
+
+  .meter{margin-bottom:9px}
+  .meter:last-child{margin-bottom:0}
+  .meter .lab{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:12px;margin-bottom:4px}
+  .meter .lab b{font-weight:450;color:var(--dim)}
+  .meter .lab u{text-decoration:none;font-variant-numeric:tabular-nums;font-weight:600}
+  .bar{height:7px;background:#e9edf1;border-radius:3px;overflow:hidden}
+  .bar>i{display:block;height:100%;border-radius:3px;transition:width .3s}
+  canvas.spark{display:block;width:100%;height:22px;margin-top:4px}
+
+  #steerbox{position:relative;height:30px;background:#eef1f4;border-radius:4px;
+    border:1px solid var(--line);overflow:hidden}
+  #steerbox:before{content:'';position:absolute;left:50%;top:0;bottom:0;width:1px;
+    background:#c3ccd5}
+  #steerbar{position:absolute;top:6px;height:16px;border-radius:3px;
+    background:var(--accent);transition:left .15s,width .15s}
+  .axis{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim2);
+    margin-top:4px}
+
+  .padrow{display:flex;align-items:center;gap:10px;padding:7px 0;
+    border-bottom:1px solid var(--line2)}
+  .padrow:last-child{border-bottom:none}
+  .swatch{width:10px;height:10px;border-radius:2px;flex:0 0 auto}
+  .padrow .nm{flex:1;min-width:0}
+  .padrow .nm b{display:block;font-size:12.5px;font-weight:600}
+  .padrow .nm em{font-style:normal;font-size:10.5px;color:var(--dim2)}
+  .padrow .ct{text-align:right;font-variant-numeric:tabular-nums}
+  .padrow .ct b{display:block;font-size:14px;font-weight:650}
+  .padrow .ct em{font-style:normal;font-size:10px;color:var(--dim2)}
+  .ring{width:24px;height:24px;flex:0 0 auto}
+  .ring svg{transform:rotate(-90deg)}
+  .on{color:var(--good);font-weight:600}
+
+  #log{max-height:180px;overflow-y:auto;font-size:11.5px}
+  #log .e{display:flex;justify-content:space-between;gap:8px;padding:4px 0;
+    border-bottom:1px solid var(--line2)}
+  #log .e:last-child{border-bottom:none}
+  #log .e b{font-weight:600}
+  #log .e span{color:var(--dim2);font-variant-numeric:tabular-nums}
+  .empty{color:var(--dim2);font-size:12px;padding:6px 0}
+  .foot{font-size:11px;color:var(--dim2);line-height:1.55;padding:10px 13px;
+    border-top:1px solid var(--line2)}
+  .pops{max-height:190px;overflow-y:auto}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">MaleCNS v1.0 <span>/ embodied</span></div>
+    <div class="metrics">
+      <div class="metric"><b id="t">0 s</b><span>sim time</span></div>
+      <div class="metric"><b id="rt">—</b><span>realtime</span></div>
+      <div class="metric"><b id="nn">—</b><span>neurons</span></div>
+      <div class="metric"><b id="hz">—</b><span>spikes / s</span></div>
+      <div class="metric"><b id="ndead">0</b><span>cells lost</span></div>
+      <div class="metric"><b id="agev">0 s</b><span>age</span></div>
+    </div>
+    <span class="pill" id="pill"><i></i><span id="alive">alive</span></span>
+  </header>
+
+  <div id="wrap">
+    <div class="card">
+      <h2>Arena <em>30 mm dish · 5 request pads</em></h2>
+      <div class="scene" id="view">
+        <div class="hint">drag to orbit · scroll to zoom</div>
+        <div class="overlay" id="overlay"></div>
+        <div id="dead"><div><h1>The fly has died</h1><p id="cause"></p></div></div>
+      </div>
+    </div>
+
+    <div class="card" id="brainpanel">
+      <h2>Brain activity <em><span id="bn">139,662</span> somata · real coordinates</em></h2>
+      <div class="scene" id="brainview">
+        <div class="hint">drag to rotate · scroll to zoom</div>
+        <div id="legend"></div>
+      </div>
+    </div>
+
+    <div id="side">
+      <div class="card">
+        <h2>Physiology <em id="v-state">holding</em></h2>
+        <div class="body">
+          <div class="meter"><div class="lab"><b>Energy</b><u id="v-energy">—</u></div>
+            <div class="bar"><i id="b-energy"></i></div>
+            <canvas class="spark" id="s-energy"></canvas></div>
+          <div class="meter"><div class="lab"><b>Water</b><u id="v-water">—</u></div>
+            <div class="bar"><i id="b-water" style="background:#1f8fcf"></i></div>
+            <canvas class="spark" id="s-water"></canvas></div>
+          <div class="meter"><div class="lab"><b>Crop (gut)</b><u id="v-crop">—</u></div>
+            <div class="bar"><i id="b-crop" style="background:#d98c0a"></i></div></div>
+          <div class="meter"><div class="lab"><b>Sodium</b><u id="v-sodium">—</u></div>
+            <div class="bar"><i id="b-sodium" style="background:#7a5bd0"></i></div></div>
+          <div class="meter"><div class="lab"><b>Damage</b><u id="v-damage">—</u></div>
+            <div class="bar"><i id="b-damage" style="background:#c0392b"></i></div></div>
+          <table class="kv" style="margin-top:10px">
+            <tr><td>Mass (growth)</td><td id="v-mass">—</td></tr>
+            <tr><td>Hunger / thirst</td><td id="v-need">—</td></tr>
+            <tr><td>Ingested</td><td id="v-ing">—</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Steering <em>lateralised descending ensemble</em></h2>
+        <div class="body">
+          <div id="steerbox"><div id="steerbar"></div></div>
+          <div class="axis"><span>◀ turn right</span><span>turn left ▶</span></div>
+          <table class="kv" style="margin-top:9px">
+            <tr><td>Turn command</td><td id="v-steer">—</td></tr>
+            <tr><td>Ensemble L / R</td><td id="v-ens">—</td></tr>
+            <tr><td>Antennal lobe L / R</td><td id="v-orn">—</td></tr>
+            <tr><td>Walking drive</td><td id="v-drive">—</td></tr>
+            <tr><td>Ground speed</td><td id="v-spd">—</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Request pads</h2>
+        <div class="body" id="pads"></div>
+      </div>
+
+      <div class="card">
+        <h2>Press log <em>internal state at press</em></h2>
+        <div class="body"><div id="log"></div></div>
+      </div>
+
+      <div class="card">
+        <h2>Network</h2>
+        <div class="body">
+          <table class="kv">
+            <tr><td>Excitability</td><td id="v-exc">—</td></tr>
+            <tr><td>Mushroom-body depression</td><td id="v-learn">—</td></tr>
+          </table>
+          <div class="pops"><table class="kv" id="pops" style="margin-top:8px"></table></div>
+        </div>
+        <div class="foot">
+          Wiring, transmitter signs, soma coordinates and every sensory, motor,
+          mushroom-body and steering population are MaleCNS v1.0 data. Metabolism,
+          arena physics and the muscle model are a model layer. Which pad counts as
+          food, and which neurons steer, were measured from the connectome.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PAD_HEX={SUGAR:'#d98c0a',WATER:'#1f8fcf',SALT:'#7a5bd0',BITTER:'#c0392b',BLANK:'#8795a4'};
+const GROUP_COLORS={
+  optic:[0.30,0.52,0.86], central:[0.86,0.68,0.26], vnc:[0.26,0.74,0.56],
+  sensory:[0.98,0.56,0.20], motor:[0.95,0.30,0.34], mushroom_body:[0.80,0.42,0.92],
+  projection:[0.42,0.76,0.90], other:[0.55,0.58,0.64],
+};
+
+let scene,camera,renderer,flyGroup,legs=[],wings=[],proboscis,tarsi=[];
+let padMeshes={},trail,trailPts=[];
+let bScene,bCam,bRenderer,bPoints,bColors,bBase,bActStride=1,bN=0,bSpin=0;
+let tgt={x:0,y:0,th:0},cur={x:0,y:0,th:0};
+const ARENA_R=30;
+let isDead=false,camAz=0,camEl=0.80,camR=72;
+// Leg geometry, used by the IK. The lower segment runs from the knee to the tip
+// of the tarsus.
+const FEMUR=0.88, TIBIA=1.06;
+// Gait is driven by DISTANCE TRAVELLED, not by a clock. That is what stops the
+// feet sliding: a planted foot stays at a fixed point on the ground while the
+// body is pulled past it, and a new step is taken every STRIDE of travel.
+const STRIDE=2.2, LIFT=0.55;
+let gaitPhase=0;
+const _lastPos=new THREE.Vector3();
+const _v=new THREE.Vector3(), _d=new THREE.Vector3(), _q=new THREE.Quaternion();
+const DOWN=new THREE.Vector3(0,-1,0);
+const hist={energy:[],water:[]};
+
+function sizeTo(host,cam,ren){
+  const w=host.clientWidth,h=host.clientHeight;
+  if(!w||!h) return;
+  cam.aspect=w/h; cam.updateProjectionMatrix(); ren.setSize(w,h);
+}
+function orbit(host,rot,zoom){
+  let down=false,lx=0,ly=0;
+  host.addEventListener('pointerdown',e=>{down=true;lx=e.clientX;ly=e.clientY;});
+  addEventListener('pointerup',()=>down=false);
+  addEventListener('pointermove',e=>{if(!down)return;
+    rot({x:e.clientX-lx,y:e.clientY-ly});lx=e.clientX;ly=e.clientY;});
+  host.addEventListener('wheel',e=>{e.preventDefault();zoom(e.deltaY>0?1.07:0.935);},
+    {passive:false});
+}
+
+function init(){
+  const host=document.getElementById('view');
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0x11161c);
+  scene.fog=new THREE.Fog(0x11161c,90,230);
+  camera=new THREE.PerspectiveCamera(44,1,0.1,600);
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  host.appendChild(renderer.domElement);
+  sizeTo(host,camera,renderer);
+
+  scene.add(new THREE.AmbientLight(0xffffff,0.5));
+  const k=new THREE.DirectionalLight(0xfff6ea,0.9); k.position.set(18,46,14); scene.add(k);
+  const r=new THREE.DirectionalLight(0x9ec4ff,0.4); r.position.set(-24,16,-20); scene.add(r);
+
+  const floor=new THREE.Mesh(new THREE.CircleGeometry(ARENA_R,128),
+    new THREE.MeshStandardMaterial({color:0x1b2430,roughness:0.95}));
+  floor.rotation.x=-Math.PI/2; scene.add(floor);
+  const lip=new THREE.Mesh(new THREE.TorusGeometry(ARENA_R,0.32,10,128),
+    new THREE.MeshStandardMaterial({color:0x3c4a5a,roughness:0.5}));
+  lip.rotation.x=-Math.PI/2; scene.add(lip);
+  const wall=new THREE.Mesh(new THREE.CylinderGeometry(ARENA_R,ARENA_R,4,128,1,true),
+    new THREE.MeshStandardMaterial({color:0x2b3847,roughness:0.6,transparent:true,
+      opacity:0.26,side:THREE.DoubleSide}));
+  wall.position.y=2; scene.add(wall);
+  const grid=new THREE.PolarGridHelper(ARENA_R,8,5,128,0x24303d,0x24303d);
+  grid.position.y=0.015; scene.add(grid);
+
+  buildFly();
+  const tg=new THREE.BufferGeometry();
+  tg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(3*700),3));
+  trail=new THREE.Line(tg,new THREE.LineBasicMaterial({color:0x6fa8e8,
+    transparent:true,opacity:0.5}));
+  scene.add(trail);
+
+  orbit(host,d=>{camAz-=d.x*0.006;camEl=Math.max(0.2,Math.min(1.45,camEl+d.y*0.005));},
+    dz=>{camR=Math.max(30,Math.min(150,camR*dz));});
+  addEventListener('resize',()=>sizeTo(host,camera,renderer));
+}
+
+function buildFly(){
+  flyGroup=new THREE.Group();
+  const mat=(c,rough=0.45)=>new THREE.MeshStandardMaterial(
+    {color:c,roughness:rough,metalness:0.2});
+
+  const th=new THREE.Mesh(new THREE.SphereGeometry(1.3,30,22),mat(0x6b4a26));
+  th.scale.set(1.3,0.95,1.05); flyGroup.add(th);
+  const sc=new THREE.Mesh(new THREE.SphereGeometry(1.27,26,16,0,Math.PI*2,0,Math.PI*0.44),
+    mat(0x3a2817,0.5));
+  sc.scale.set(1.3,1.0,1.05); sc.position.y=0.05; flyGroup.add(sc);
+
+  for(let i=0;i<6;i++){
+    const t=i/5, rad=1.34*(1-0.40*t*t-0.20*t);
+    const s=new THREE.Mesh(new THREE.SphereGeometry(rad,26,18),
+      mat(i%2?0x2a1d12:0x8a6230));
+    s.scale.set(0.80,0.86,1.0);
+    s.position.set(-1.32-i*0.58,-0.07-t*0.24,0);
+    flyGroup.add(s);
+  }
+
+  const hd=new THREE.Mesh(new THREE.SphereGeometry(1.0,26,20),mat(0x4a3420));
+  hd.position.set(1.80,0.04,0); hd.scale.set(0.88,1,1.06); flyGroup.add(hd);
+  const eyeMat=new THREE.MeshStandardMaterial({color:0xc62f22,roughness:0.25,
+    metalness:0.3,emissive:0x40100b,emissiveIntensity:0.55});
+  for(const s of [-1,1]){
+    const e=new THREE.Mesh(new THREE.SphereGeometry(0.64,22,18),eyeMat);
+    e.position.set(1.90,0.12,0.55*s); e.scale.set(0.84,1.06,0.94); flyGroup.add(e);
+    const a1=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.09,0.4,8),mat(0x2e2114));
+    a1.position.set(2.38,-0.30,0.23*s); a1.rotation.z=0.55; a1.rotation.x=-0.3*s;
+    flyGroup.add(a1);
+    const a2=new THREE.Mesh(new THREE.SphereGeometry(0.17,12,10),mat(0x26190f));
+    a2.position.set(2.60,-0.50,0.28*s); a2.scale.set(1.5,1,0.8); flyGroup.add(a2);
+  }
+  proboscis=new THREE.Group();
+  const p1=new THREE.Mesh(new THREE.CylinderGeometry(0.17,0.21,1.0,10),mat(0x8a6534));
+  p1.position.y=-0.5; proboscis.add(p1);
+  const p2=new THREE.Mesh(new THREE.SphereGeometry(0.26,14,10),mat(0x9c7540));
+  p2.position.y=-1.02; p2.scale.set(1,0.72,1.12); proboscis.add(p2);
+  proboscis.position.set(2.18,-0.60,0); proboscis.rotation.z=0.42; flyGroup.add(proboscis);
+
+  const legMat=mat(0x2a1d12,0.6);
+  const attach=[[1.02,0.92],[0.08,1.02],[-0.92,0.96]];
+  // where each foot rests, in body coordinates: out to the side and splayed
+  // fore/aft the way a fly actually stands
+  const stand=[[1.55,1.95],[0.10,2.15],[-1.35,1.95]];
+  for(let p=0;p<3;p++) for(const s of [-1,1]){
+    const g=new THREE.Group();
+    g.position.set(attach[p][0],-0.52,attach[p][1]*s);
+    const fe=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.115,FEMUR,8),legMat);
+    fe.position.y=-FEMUR/2; g.add(fe);
+    const knee=new THREE.Group(); knee.position.y=-FEMUR; g.add(knee);
+    const ti=new THREE.Mesh(new THREE.CylinderGeometry(0.105,0.08,0.76,8),legMat);
+    ti.position.y=-0.38; knee.add(ti);
+    const ta=new THREE.Mesh(new THREE.CylinderGeometry(0.075,0.045,0.32,6),legMat);
+    ta.position.y=-0.9; knee.add(ta); tarsi.push(ta);
+    flyGroup.add(g);
+    legs.push({
+      g, knee, side:s, pair:p,
+      // tripod gait: front-left, mid-right, hind-left step together
+      group: ((p===1) ? (s>0?0:1) : (s>0?1:0)),
+      home: new THREE.Vector3(stand[p][0], 0, stand[p][1]*s),
+      planted: new THREE.Vector3(),
+      swingFrom: new THREE.Vector3(),
+      swingTo: new THREE.Vector3(),
+      init: false,
+    });
+  }
+
+  const wm=new THREE.MeshStandardMaterial({color:0xdfeaff,transparent:true,opacity:0.17,
+    roughness:0.08,metalness:0.6,side:THREE.DoubleSide,depthWrite:false});
+  for(const s of [-1,1]){
+    const pv=new THREE.Group(); pv.position.set(-0.75,0.82,0.42*s);
+    const w=new THREE.Mesh(new THREE.CircleGeometry(1.35,26),wm);
+    // long and narrow, swept back and outward from the hinge
+    w.scale.set(2.3,0.46,1);
+    w.position.set(-2.6,0,0.85*s);
+    w.rotation.x=-Math.PI/2;
+    w.rotation.z=0.30*s;
+    pv.add(w); flyGroup.add(pv); wings.push({pivot:pv,side:s});
+  }
+  for(const s of [-1,1]){
+    const h=new THREE.Mesh(new THREE.SphereGeometry(0.13,10,8),mat(0x5e4324));
+    h.position.set(-1.55,0.16,0.48*s); flyGroup.add(h);
+  }
+
+  flyGroup.scale.setScalar(1.95);
+  flyGroup.position.y=0;
+  scene.add(flyGroup);
+  flyGroup.updateWorldMatrix(true,true);
+  const v=new THREE.Vector3(); let lo=Infinity;
+  for(const t of tarsi){ t.getWorldPosition(v); lo=Math.min(lo,v.y-0.16*flyGroup.scale.y); }
+  flyGroup.position.y=-lo+0.05;
+}
+
+function initBrain(){
+  const host=document.getElementById('brainview');
+  bScene=new THREE.Scene(); bScene.background=new THREE.Color(0x0d1218);
+  bCam=new THREE.PerspectiveCamera(42,1,0.1,600);
+  bCam.position.set(0,4,68); bCam.lookAt(0,0,12);
+  bRenderer=new THREE.WebGLRenderer({antialias:true});
+  bRenderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  host.appendChild(bRenderer.domElement);
+  sizeTo(host,bCam,bRenderer);
+  let el=0;
+  orbit(host,d=>{bSpin-=d.x*0.006;el=Math.max(-0.9,Math.min(0.9,el+d.y*0.005));
+    bCam.position.y=4+el*45;bCam.lookAt(0,0,12);},
+    dz=>{bCam.position.multiplyScalar(dz);});
+  addEventListener('resize',()=>sizeTo(host,bCam,bRenderer));
+
+  fetch('/geometry').then(r=>r.json()).then(g=>{
+    if(!g.n) return;
+    bN=g.n; bActStride=g.act_stride;
+    document.getElementById('bn').textContent=bN.toLocaleString();
+    const xyz=new Float32Array(Uint8Array.from(atob(g.xyz),c=>c.charCodeAt(0)).buffer);
+    const grp=Uint8Array.from(atob(g.group),c=>c.charCodeAt(0));
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.BufferAttribute(xyz,3));
+    bBase=new Float32Array(bN*3); bColors=new Float32Array(bN*3);
+    for(let i=0;i<bN;i++){
+      const c=GROUP_COLORS[g.groups[grp[i]]]||GROUP_COLORS.other;
+      for(let k=0;k<3;k++){bBase[3*i+k]=c[k]; bColors[3*i+k]=c[k]*0.24;}
+    }
+    geo.setAttribute('color',new THREE.BufferAttribute(bColors,3));
+    bPoints=new THREE.Points(geo,new THREE.PointsMaterial({size:0.34,vertexColors:true,
+      transparent:true,opacity:0.92,sizeAttenuation:true,
+      blending:THREE.AdditiveBlending,depthWrite:false}));
+    bScene.add(bPoints);
+    document.getElementById('legend').innerHTML=g.groups.map(n=>{
+      const c=GROUP_COLORS[n]||GROUP_COLORS.other;
+      const hx='#'+c.map(v=>Math.round(v*255).toString(16).padStart(2,'0')).join('');
+      return `<span><i style="background:${hx}"></i>${n.replace('_',' ')}</span>`;
+    }).join('');
+  }).catch(e=>console.warn('geometry',e));
+}
+
+function footTarget(L, ahead, out){
+  // where this foot should land: its rest position in body coordinates, pushed
+  // forward by half a stride, converted to world space
+  out.set(L.home.x + ahead, 0, L.home.z);
+  flyGroup.localToWorld(out);
+  out.y = 0.06;                       // on the ground
+  return out;
+}
+
+function stepLegs(){
+  // advance the gait by how far the body actually moved
+  const moved = _lastPos.distanceTo(flyGroup.position);
+  _lastPos.copy(flyGroup.position);
+  gaitPhase = (gaitPhase + moved / STRIDE) % 1;
+
+  for(const L of legs){
+    if(!L.init){
+      footTarget(L, 0, L.planted); L.init = true;
+      L.swingFrom.copy(L.planted); L.swingTo.copy(L.planted);
+    }
+    // the two tripods are half a cycle apart
+    const p = (gaitPhase + (L.group ? 0.5 : 0)) % 1;
+    if(p < 0.5){
+      // STANCE - the foot does not move; the body travels past it
+      if(L.wasSwing){ L.planted.copy(L.swingTo); L.wasSwing = false; }
+      _v.copy(L.planted);
+    } else {
+      // SWING - lift and carry the foot to its next landing point
+      if(!L.wasSwing){
+        L.swingFrom.copy(L.planted);
+        footTarget(L, STRIDE * 0.5, L.swingTo);
+        L.wasSwing = true;
+      }
+      const t = (p - 0.5) * 2;
+      _v.lerpVectors(L.swingFrom, L.swingTo, t);
+      _v.y += Math.sin(t * Math.PI) * LIFT;
+    }
+    solveLeg(L, _v);
+  }
+}
+
+function solveLeg(L, footWorld){
+  // two-bone IK, solved in the fly's own coordinate frame
+  _d.copy(footWorld);
+  flyGroup.worldToLocal(_d);
+  _d.sub(L.g.position);
+  let len = _d.length();
+  const min = Math.abs(FEMUR - TIBIA) + 0.02, max = FEMUR + TIBIA - 0.02;
+  len = Math.max(min, Math.min(max, len));
+  _d.normalize();
+
+  // angle between the femur and the straight hip-to-foot line
+  const cosA = (FEMUR*FEMUR + len*len - TIBIA*TIBIA) / (2*FEMUR*len);
+  const alpha = Math.acos(Math.max(-1, Math.min(1, cosA)));
+  // interior angle at the knee
+  const cosK = (FEMUR*FEMUR + TIBIA*TIBIA - len*len) / (2*FEMUR*TIBIA);
+  const knee = Math.acos(Math.max(-1, Math.min(1, cosK)));
+
+  // aim the whole leg down the hip-to-foot line, then bend it out sideways so
+  // the knee points away from the body, as an insect's does
+  _q.setFromUnitVectors(DOWN, _d);
+  L.g.quaternion.copy(_q);
+  L.g.rotateZ(-alpha * L.side);
+  L.knee.rotation.z = (Math.PI - knee) * L.side;
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  const k=0.17;
+  cur.x+=(tgt.x-cur.x)*k; cur.y+=(tgt.y-cur.y)*k;
+  let d=tgt.th-cur.th; while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
+  cur.th+=d*k;
+
+  camera.position.set(cur.x*0.16+Math.sin(camAz)*camR*Math.cos(camEl),
+    camR*Math.sin(camEl), -cur.y*0.16+Math.cos(camAz)*camR*Math.cos(camEl));
+  camera.lookAt(cur.x*0.16,1.5,-cur.y*0.16);
+
+  if(flyGroup){
+    flyGroup.position.x=cur.x; flyGroup.position.z=-cur.y;
+    flyGroup.rotation.y=-cur.th;
+    const now=performance.now()/1000;
+    stepLegs();
+    const amp=isDead?0:0.35+Math.min(1,(window._wing||0)/25)*0.85;
+    for(const W of wings) W.pivot.rotation.x=Math.sin(now*34)*amp*W.side*0.5-0.1;
+    if(proboscis) proboscis.scale.y=1+Math.max(0,Math.min(1,(window._prob||0)/18))*2.2;
+    if(isDead){flyGroup.rotation.z=2.7; flyGroup.position.y=0.7;}
+  }
+  renderer.render(scene,camera);
+
+  if(bPoints){
+    bPoints.rotation.y=bSpin;
+    for(let i=0;i<bN*3;i++){
+      const fl=bBase[i]*0.24;
+      if(bColors[i]>fl) bColors[i]+=(fl-bColors[i])*0.11;
+    }
+    bPoints.geometry.attributes.color.needsUpdate=true;
+    bRenderer.render(bScene,bCam);
+  }
+}
+
+function spark(id,arr,color){
+  const c=document.getElementById(id); if(!c) return;
+  const w=c.clientWidth||300;
+  if(c.width!==w*2){c.width=w*2;c.height=44;}
+  const x=c.getContext('2d'); x.clearRect(0,0,c.width,c.height);
+  if(arr.length<2) return;
+  const mn=Math.min(...arr),mx=Math.max(...arr),rg=(mx-mn)||1;
+  x.beginPath();
+  arr.forEach((v,i)=>{const px=i/(arr.length-1)*c.width,
+    py=c.height-((v-mn)/rg)*(c.height-6)-3; i?x.lineTo(px,py):x.moveTo(px,py);});
+  x.strokeStyle=color; x.lineWidth=2.5; x.stroke();
+}
+
+function ensurePads(pads){
+  for(const p of pads){
+    if(padMeshes[p.name]) continue;
+    const g=new THREE.Group();
+    const col=new THREE.Color(PAD_HEX[p.name]||'#8795a4').getHex();
+    const disc=new THREE.Mesh(new THREE.CylinderGeometry(p.r,p.r,0.3,44),
+      new THREE.MeshStandardMaterial({color:col,roughness:0.45,emissive:col,
+        emissiveIntensity:0.1}));
+    disc.position.y=0.15; disc.name='disc'; g.add(disc);
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(p.r+0.6,0.13,8,56),
+      new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.45}));
+    ring.rotation.x=-Math.PI/2; ring.position.y=0.04; ring.name='ring'; g.add(ring);
+    const beam=new THREE.Mesh(new THREE.CylinderGeometry(p.r*0.5,p.r*0.16,11,22,1,true),
+      new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0,
+        side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+    beam.position.y=5.6; beam.name='beam'; g.add(beam);
+    g.position.set(p.x,0,-p.y); scene.add(g); padMeshes[p.name]=g;
+  }
+}
+
+function apply(st){
+  const b=st.body,br=st.brain,mo=st.motor||{},P=br.pops||{};
+  const $=id=>document.getElementById(id);
+  $('t').textContent=st.sim_t.toFixed(0)+' s';
+  $('rt').textContent=st.realtime_factor.toFixed(2)+'×';
+  $('nn').textContent=br.n_neurons.toLocaleString();
+  $('hz').textContent=Number(br.spike_rate_hz).toLocaleString();
+  $('ndead').textContent=br.n_dead.toLocaleString();
+  $('agev').textContent=b.age_s.toFixed(0)+' s';
+
+  const meter=(id,frac,txt,col)=>{
+    const el=$('b-'+id);
+    if(el){el.style.width=Math.max(0,Math.min(1,frac))*100+'%'; if(col) el.style.background=col;}
+    const v=$('v-'+id); if(v) v.textContent=txt;
+  };
+  meter('energy',b.energy,b.energy.toFixed(3),
+    b.energy>0.5?'#1f9d55':b.energy>0.15?'#c77700':'#c0392b');
+  meter('water',b.water,b.water.toFixed(3));
+  meter('crop',b.crop/0.6,b.crop.toFixed(3));
+  meter('sodium',b.sodium,b.sodium.toFixed(3));
+  meter('damage',b.damage,b.damage.toFixed(3));
+  $('v-mass').textContent=b.mass.toFixed(3);
+  $('v-need').textContent=`${b.hunger.toFixed(2)} / ${b.thirst.toFixed(2)}`;
+  const ing=b.ingested||{};
+  $('v-ing').textContent=Object.entries(ing).filter(([,v])=>v>0.001)
+    .map(([k,v])=>`${k} ${v.toFixed(2)}`).join(', ')||'nothing';
+  const fl=[]; if(b.repairing)fl.push('repairing'); if(b.growing)fl.push('growing');
+  $('v-state').textContent=fl.join(' + ')||'holding';
+
+  hist.energy.push(b.energy); hist.water.push(b.water);
+  if(hist.energy.length>170){hist.energy.shift();hist.water.shift();}
+  spark('s-energy',hist.energy,'#1f9d55');
+  spark('s-water',hist.water,'#1f8fcf');
+
+  const sc=Math.max(-1,Math.min(1,mo.steer||0));
+  const sb=$('steerbar');
+  sb.style.left=(sc>=0?50:50+sc*50)+'%';
+  sb.style.width=Math.abs(sc)*50+'%';
+  sb.style.background=sc>=0?'#1d6fd0':'#d98c0a';
+  $('v-steer').textContent=(mo.steer??0).toFixed(3);
+  const sp=br.steer_pair||[0,0], sn=br.steer_n||[0,0];
+  $('v-ens').textContent=`${sp[0].toFixed(1)} / ${sp[1].toFixed(1)} Hz  (${sn[0]}+${sn[1]} cells)`;
+  $('v-orn').textContent=`${(P.olfactory_L??0).toFixed(2)} / ${(P.olfactory_R??0).toFixed(2)} Hz`;
+  $('v-drive').textContent=((mo.drive??0)*100).toFixed(0)+' %';
+  $('v-spd').textContent=st.world.fly.speed.toFixed(1)+' mm/s';
+  $('v-exc').textContent=br.excitability.toFixed(3);
+  $('v-learn').textContent=br.learned.toFixed(4);
+  $('pops').innerHTML=Object.entries(P)
+    .map(([k,v])=>`<tr><td>${k}</td><td>${v.toFixed(1)} Hz</td></tr>`).join('');
+
+  ensurePads(st.world.pads);
+  $('pads').innerHTML=st.world.pads.map(p=>{
+    const frac=p.dispensing?1:p.dwell, C=2*Math.PI*10;
+    const status=p.dispensing?'<span class="on">dispensing</span>'
+      :(p.cooldown>0?`refilling · ${p.cooldown.toFixed(0)} s`:'ready');
+    return `<div class="padrow">
+      <span class="swatch" style="background:${p.color}"></span>
+      <div class="ring"><svg width="24" height="24">
+        <circle cx="12" cy="12" r="10" fill="none" stroke="#e4e9ee" stroke-width="2.5"/>
+        <circle cx="12" cy="12" r="10" fill="none" stroke="${p.color}" stroke-width="2.5"
+          stroke-dasharray="${C}" stroke-dashoffset="${C*(1-frac)}"/></svg></div>
+      <div class="nm"><b>${p.name}</b><em>${status}</em></div>
+      <div class="ct"><b>${p.presses}</b><em>${p.consumed.toFixed(1)} s fed</em></div>
+    </div>`;
+  }).join('');
+  for(const p of st.world.pads){
+    const g=padMeshes[p.name]; if(!g) continue;
+    g.getObjectByName('beam').material.opacity=p.dispensing?0.26:0;
+    g.getObjectByName('disc').material.emissiveIntensity=p.dispensing?0.9:0.1+0.5*p.dwell;
+    g.getObjectByName('ring').material.emissiveIntensity=p.cooldown>0?0.06:0.45;
+  }
+
+  const f=st.world.fly;
+  tgt={x:f.x,y:f.y,th:f.theta};
+  window._spd=f.speed; window._prob=mo.proboscis||0; window._wing=P.mn_wing||0;
+  trailPts.push([f.x,0.45,-f.y]); if(trailPts.length>700) trailPts.shift();
+  const a=trail.geometry.attributes.position.array;
+  for(let i=0;i<trailPts.length;i++){
+    a[3*i]=trailPts[i][0]; a[3*i+1]=trailPts[i][1]; a[3*i+2]=trailPts[i][2];
+  }
+  trail.geometry.setDrawRange(0,trailPts.length);
+  trail.geometry.attributes.position.needsUpdate=true;
+
+  const act=(st.world.pads||[]).filter(p=>p.dispensing||p.dwell>0).map(p=>p.name);
+  $('overlay').textContent=act.length?('at '+act.join(', ')):'';
+
+  if(st.act&&bPoints){
+    const A=Uint8Array.from(atob(st.act),c=>c.charCodeAt(0));
+    for(let kk=0;kk<A.length;kk++){
+      const i=kk*bActStride; if(i>=bN) break;
+      const v=A[kk]/255; if(v<=0) continue;
+      const lum=0.24+2.7*v, j=3*i;
+      bColors[j]=Math.min(1.8,bBase[j]*lum);
+      bColors[j+1]=Math.min(1.8,bBase[j+1]*lum);
+      bColors[j+2]=Math.min(1.8,bBase[j+2]*lum);
+    }
+    bPoints.geometry.attributes.color.needsUpdate=true;
+  }
+
+  $('log').innerHTML=(st.press_log||[]).slice().reverse()
+    .map(e=>`<div class="e"><b>${e.pad}</b><span>t ${e.t}s · hun ${e.hunger.toFixed(2)}`
+      +` · thi ${e.thirst.toFixed(2)} · na ${e.salt.toFixed(2)}</span></div>`).join('')
+    ||'<div class="empty">No presses yet.</div>';
+
+  if(!b.alive&&!isDead){
+    isDead=true;
+    $('pill').classList.add('dead'); $('alive').textContent='dead';
+    $('dead').style.display='grid';
+    $('cause').textContent=(b.cause_of_death||'unknown')+' · lived '+b.age_s.toFixed(0)+' s';
+  }
+}
+
+init(); initBrain(); animate();
+const es=new EventSource('/stream');
+es.onmessage=e=>{try{apply(JSON.parse(e.data));}catch(err){console.error(err);}};
+es.onerror=()=>console.warn('stream interrupted');
+</script>
+</body>
+</html>

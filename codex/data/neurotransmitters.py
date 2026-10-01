@@ -5,6 +5,11 @@ NEURO_TRANSMITTER_NAMES = {
     "GLUT": "glutamate",
     "ACH": "acetylcholine",
     "OCT": "octopamine",
+    # Local additions for the MaleCNS dataset, which predicts histamine (the
+    # photoreceptor transmitter) and leaves some bodies unresolved. FAFB never
+    # emits either value, so this is inert for the 783 snapshot.
+    "HA": "histamine",
+    "UNK": "unknown",
 }
 
 

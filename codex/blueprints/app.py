@@ -536,9 +536,18 @@ def cell_details():
 
     root_id = None
     cell_names_or_id = request.args.get("cell_names_or_id")
+    explicit_root_id = None
     if not cell_names_or_id:
         cell_names_or_id = request.args.get("root_id")
-    if cell_names_or_id:
+        # An explicit root_id means that cell, not a free-text search for its
+        # digits. Without this, an id that appears as a substring of some other
+        # cell's label (e.g. MaleCNS synonym "fru-M-100094" contains "10009")
+        # makes the search ambiguous and bounces to the results page.
+        if cell_names_or_id and cell_names_or_id.isdigit():
+            explicit_root_id = int(cell_names_or_id)
+    if explicit_root_id is not None and neuron_db.is_in_dataset(explicit_root_id):
+        root_id = explicit_root_id
+    elif cell_names_or_id:
         if cell_names_or_id == "{random_cell}":
             logger.info("Generated random cell detail page")
             root_id = neuron_db.random_cell_id()

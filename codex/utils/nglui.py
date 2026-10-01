@@ -22,7 +22,7 @@ def url_for_root_ids(
             f"Invalid version '{version}' passed to 'url_for_root_ids'. Falling back to default."
         )
         version = DEFAULT_DATA_SNAPSHOT_VERSION
-    if point_to in ["flywire_prod", "flywire_public"]:
+    if point_to in ["flywire_prod", "flywire_public"] and version != MALECNS_VERSION:
         img_layer = statebuilder.ImageLayerConfig(
             name="EM",
             source="precomputed://gs://microns-seunglab/drosophila_v0/alignment/vector_fixer30_faster_v01/v4/image_stitch_v02",
@@ -71,7 +71,10 @@ def url_for_root_ids(
         return f"https://ngl.flywire.ai/#!{urllib.parse.quote(json.dumps(config))}"
     else:
         return url_for_cells(
-            segment_ids=root_ids, data_version=version, show_side_panel=show_side_panel
+            segment_ids=root_ids,
+            data_version=version,
+            show_side_panel=show_side_panel,
+            position=position,
         )
 
 
@@ -87,7 +90,72 @@ def url_for_random_sample(root_ids, version, sample_size=50):
     return url_for_root_ids(root_ids, version=version)
 
 
-def url_for_cells(segment_ids, data_version, show_side_panel=None):
+MALECNS_VERSION = "malecns"
+
+# Layer sources and default view lifted from Janelia's own published state at
+# gs://flyem-male-cns/v1.0/male-cns-v1.0.json. MaleCNS is 8nm isotropic, versus
+# FAFB's 16/16/40nm, and lives in an entirely different volume - which is why
+# pointing MaleCNS body ids at the FlyWire layers shows the wrong brain.
+MALECNS_EM = "precomputed://gs://flyem-male-cns/em/em-clahe-jpeg"
+MALECNS_SEG = "precomputed://gs://flyem-male-cns/v1.0/segmentation"
+MALECNS_BRAIN_SHELL = (
+    "precomputed://gs://flyem-male-cns/rois/brain-shell-with-lamina-v2.1"
+)
+MALECNS_VNC_SHELL = "precomputed://gs://flyem-male-cns/rois/vnc-shell-v2"
+MALECNS_POSITION = [48686.5, 27515.5, 24721.5]
+
+
+def url_for_malecns_cells(segment_ids, show_side_panel=False, position=None):
+    seg_layer_name = "cns-seg"
+    config = {
+        "dimensions": {"x": [8e-9, "m"], "y": [8e-9, "m"], "z": [8e-9, "m"]},
+        "position": list(position) if position else MALECNS_POSITION,
+        "projectionScale": 134522,
+        "layers": [
+            {
+                "type": "image",
+                "source": MALECNS_EM,
+                "tab": "source",
+                "name": "em-clahe",
+                "visible": False,
+            },
+            {
+                "type": "segmentation",
+                "source": MALECNS_BRAIN_SHELL,
+                "objectAlpha": 0.06,
+                "hideSegmentZero": False,
+                "segments": ["1"],
+                "segmentColors": {"1": "#b5b5b5"},
+                "name": "brain-shell",
+            },
+            {
+                "type": "segmentation",
+                "source": MALECNS_VNC_SHELL,
+                "objectAlpha": 0.06,
+                "hideSegmentZero": False,
+                "segments": ["1"],
+                "segmentColors": {"1": "#b5b5b5"},
+                "name": "vnc-shell",
+            },
+            {
+                "type": "segmentation",
+                "source": MALECNS_SEG,
+                "tab": "segments",
+                # BEWARE: JSON can't handle big ints
+                "segments": [str(sid) for sid in segment_ids],
+                "name": seg_layer_name,
+            },
+        ],
+        "showSlices": False,
+        "perspectiveViewBackgroundColor": "#ffffff",
+        "showDefaultAnnotations": False,
+        "selectedLayer": {"visible": show_side_panel, "layer": seg_layer_name},
+        "layout": "3d",
+    }
+    return f"{NGL_FLAT_BASE_URL}/#!{urllib.parse.quote(json.dumps(config))}"
+
+
+def url_for_cells(segment_ids, data_version, show_side_panel=None, position=None):
     if show_side_panel is None:
         show_side_panel = len(segment_ids) > 1
     else:
@@ -98,6 +166,11 @@ def url_for_cells(segment_ids, data_version, show_side_panel=None):
             f"Invalid version '{data_version}' passed to 'url_for_cells'. Falling back to default."
         )
         data_version = DEFAULT_DATA_SNAPSHOT_VERSION
+
+    if data_version == MALECNS_VERSION:
+        return url_for_malecns_cells(
+            segment_ids, show_side_panel=show_side_panel, position=position
+        )
 
     config = {
         "dimensions": {"x": [1.6e-8, "m"], "y": [1.6e-8, "m"], "z": [4e-8, "m"]},

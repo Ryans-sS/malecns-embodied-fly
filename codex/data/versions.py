@@ -1,5 +1,6 @@
 DATA_SNAPSHOT_VERSION_DESCRIPTIONS = {
-    "783": "Snapshot 783 - Oct 2023 [latest release]",
+    "783": "FlyWire FAFB 783 - Oct 2023 [female brain]",
+    "malecns": "Janelia MaleCNS v1.0 - Jun 2026 [male brain + VNC]",
 }
 
 DATA_SNAPSHOT_VERSIONS = sorted(DATA_SNAPSHOT_VERSION_DESCRIPTIONS.keys(), reverse=True)

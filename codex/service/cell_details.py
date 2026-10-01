@@ -20,7 +20,7 @@ from codex.utils import nglui
 from codex.utils import stats as stats_utils
 from codex.utils.formatting import (
     concat_labels,
-    nanometer_to_flywire_coordinates,
+    nanometer_to_dataset_coordinates,
     nanos_to_formatted_micros,
     display,
 )
@@ -60,7 +60,9 @@ def cached_cell_details(
 ):
     nd = neuron_db.get_neuron_data(root_id=root_id)
     pos = (
-        nanometer_to_flywire_coordinates(nd["position"][0]) if nd["position"] else None
+        nanometer_to_dataset_coordinates(nd["position"][0], data_version)
+        if nd["position"]
+        else None
     )
     fw_url = nglui.url_for_root_ids(
         root_ids=[root_id],
@@ -84,7 +86,13 @@ def cached_cell_details(
         "NT Type": nd["nt_type"]
         + f' ({lookup_nt_type_name(nd["nt_type"])})<br><small>predictions '
         + ", ".join(
-            [f"{k}: {nd[f'{k.lower()}_avg']}" for k in sorted(NEURO_TRANSMITTER_NAMES)]
+            [
+                f"{k}: {nd[f'{k.lower()}_avg']}"
+                for k in sorted(NEURO_TRANSMITTER_NAMES)
+                # Not every transmitter in the vocabulary has a per-cell average
+                # column (MaleCNS adds HA/UNK, which FAFB's schema has no slot for).
+                if f"{k.lower()}_avg" in nd
+            ]
         )
         + "</small>",
         "Size": "<small>"

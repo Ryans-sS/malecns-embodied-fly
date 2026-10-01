@@ -1,0 +1,97 @@
+MaleCNS embodied fly
+Copyright 2026 Ryan (github.com/Ryans-sS)
+
+This product includes software developed by the Murthy and Seung labs at
+Princeton University as part of Codex, the FlyWire connectome data explorer:
+
+    https://github.com/murthylab/codex
+    Copyright the Codex authors
+    Licensed under the Apache License, Version 2.0
+
+================================================================================
+Modifications made to the original Codex source
+================================================================================
+
+As required by section 4(b) of the Apache License, this is a statement of the
+changes made to the upstream files carried in this repository.
+
+Files modified (8):
+
+  codex/blueprints/app.py          Treat an all-digit search term as an explicit
+                                   root id rather than free text. A MaleCNS
+                                   synonym can contain another cell's id as a
+                                   substring (e.g. "fru-M-100094" contains
+                                   "10009"), which made the search ambiguous and
+                                   bounced it to the results page.
+  codex/data/brain_regions.py      Accept the MaleCNS side spelling "(L)"/"(R)"
+                                   alongside FAFB's "_L"/"_R" when deriving a
+                                   neuropil's side and base name, and merge the
+                                   MaleCNS regions into the region tables.
+  codex/data/local_data_loader.py  Read and write the data CSVs as UTF-8 with
+                                   newline="" throughout. Python's default
+                                   Windows codec is cp1252, which crashed on the
+                                   MaleCNS labels.csv.gz.
+  codex/data/neurotransmitters.py  Add histamine (HA) and UNK, which MaleCNS
+                                   predicts and FlyWire 783 never emits.
+  codex/data/versions.py           Register the "malecns" data version and name
+                                   both versions by dataset rather than by
+                                   snapshot number alone.
+  codex/service/cell_details.py    Convert soma positions per dataset instead of
+                                   assuming FlyWire voxels, and guard the
+                                   neurotransmitter averages against transmitter
+                                   types a given dataset does not carry.
+  codex/utils/formatting.py        Add nanometre-to-voxel conversion for MaleCNS,
+                                   which is 8 nm isotropic against FAFB's
+                                   4/4/40 nm, and a dataset-dispatching wrapper.
+  codex/utils/nglui.py             Point 3D links at the correct volume per
+                                   dataset - FlyWire for FAFB, Janelia's
+                                   neuroglancer for MaleCNS - and pass the soma
+                                   position through so the view opens on the cell.
+
+Files added (2):
+
+  codex/data/malecns_regions.py    Generated MaleCNS neuropil region definitions
+                                   (produced by lab/gen_malecns_regions.py).
+  codex/data/malecns_roi_naming.py ROI renaming to resolve a collision: Codex
+                                   uppercases region names, which collapses the
+                                   mushroom-body alpha lobe (aL) onto the
+                                   antennal lobe (AL). MB lobes are prefixed.
+
+Directories added (entirely new work, not derived from Codex):
+
+  lab/                             DuckDB build and query layer spanning both
+                                   connectomes.
+  sim/                             Embodied simulation: spiking brain, metabolism,
+                                   arena, and the NeuroMechFly/MuJoCo body.
+
+================================================================================
+Third-party data and software
+================================================================================
+
+The connectome datasets are NOT distributed in this repository and are NOT
+covered by its licence. They carry their own terms:
+
+  FlyWire FAFB connectome, version 783
+    https://flywire.ai  -  see the FlyWire citation guidelines before use.
+    Dorkenwald et al. and Schlegel et al., Nature 2024.
+
+  Janelia MaleCNS, version 1.0
+    https://neuprint.janelia.org  -  CC-BY 4.0.
+    HHMI Janelia Research Campus.
+
+Third-party software used by sim/ but not redistributed here:
+
+  NeuroMechFly / flygym                 https://github.com/NeLy-EPFL/flygym
+    Neuroengineering Laboratory, EPFL. The biomechanical fly model, its
+    ommatidial retina, and the MuJoCo scene composition API.
+    Wang-Chen et al., Nature Methods 2024.
+
+  MuJoCo                                https://github.com/google-deepmind/mujoco
+    Google DeepMind. Apache-2.0.
+
+The leaky integrate-and-fire parameterisation used in sim/brain.py follows:
+
+  Shiu, Sterne, Spiller et al., "A leaky integrate-and-fire computational model
+  based on the connectome of the entire adult Drosophila brain reveals insights
+  into sensorimotor processing", Nature 2024.
+  https://doi.org/10.1038/s41586-024-07763-9
