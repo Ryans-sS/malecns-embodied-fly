@@ -14,8 +14,10 @@ fly was flung across the dish at 130 mm/s with no command given.
 from __future__ import annotations
 
 import argparse
+import base64
 import io
 import math
+import os
 import sys
 import threading
 import time
@@ -33,7 +35,39 @@ from PIL import Image
 from sim.nmf.gait import TripodGait
 from flygym.vision.retina import Retina
 
-from sim.nmf.world import DISH_R, PADS, Dish, build_fly, color_fly, fix_clipping
+from sim.nmf.world import (DISH_R, PADS, Dish, add_wall_contacts, build_fly,
+                           color_fly, fix_clipping)
+from sim.brain import DT_MS, Brain
+from sim.nmf.olfaction import CUE_DRIVE, PadOdour
+from sim.world import LIGHT_DRIVE, MAX_SPEED, WALL_DRIVE
+
+# -- brain -> body ------------------------------------------------------------
+# Leg motor pools rest at 12-22 Hz while the brain as a whole rests near 2 Hz, so
+# every readout here is a CHANGE from that pool's own measured baseline.
+LEG_RATE_REF = 10.0        # delta-Hz counting as full forward drive
+# Baseline leg-motor firing means "standing", so a resting fly reads out zero
+# forward drive and would never leave the spot it started on. Real flies walk
+# spontaneously; a static connectome does not capture the neuromodulation that
+# makes them. This bias is an explicit model term, not something measured.
+FORAGE_BIAS = 0.35
+# Turn command is -1..1 for the gait, where 1 is about 52 deg/s. The steering
+# signal is the adapted left-minus-right of a 182-neuron lateralised descending
+# ensemble, measured in sim/probe_steering.py - not DNa01/DNa02 alone, which is
+# four cells and pure shot noise.
+STEER_GAIN = 1.9
+IMBALANCE_GAIN = 0.25      # leg-pool left/right asymmetry
+WANDER_YAW = 0.10          # exploration, so a quiet network still moves
+MOTOR_POOLS = [
+    "mn_leg_front_L", "mn_leg_mid_L", "mn_leg_hind_L",
+    "mn_leg_front_R", "mn_leg_mid_R", "mn_leg_hind_R",
+    "mn_proboscis",
+]
+
+BRAIN_NPZ = os.path.join("sim", "brain_malecns.npz")
+GEOM_NPZ = os.path.join("sim", "brain_geometry.npz")
+# How many somata stream their firing rate to the page. All 139,662 are drawn;
+# this is how many carry live activity, strided across the set.
+ACTIVITY_POINTS = 45000
 
 # 5e-5 measured: 0.28x realtime, zero passive drift, 4 ground contacts and a
 # 7 mm/s walk. 1e-5 was 35x slower for no stability gain once the integrator was
@@ -91,6 +125,7 @@ class NMFSim:
             spawn_rotation=Rotation3D("quat", (1.0, 0.0, 0.0, 0.0)),
             add_ground_contact_sensors=False,
         )
+        self.n_wall_pairs = add_wall_contacts(self.dish)
         self.sim = Simulation(self.dish)
         self.sim.reset()
         self.sim.mj_model.opt.integrator = INTEGRATOR_IMPLICITFAST
@@ -98,6 +133,7 @@ class NMFSim:
         self._tune()
         color_fly(self.sim)
         self.znear_mm, self.zfar_mm = fix_clipping(self.sim)
+        print(f"  dish wall: {self.n_wall_pairs} fly/wall contact pairs", flush=True)
         for _ in range(int(0.6 / TIMESTEP)):      # let it settle onto its feet
             self.sim.step()
         self.gait = TripodGait(self.sim)
@@ -110,6 +146,8 @@ class NMFSim:
         # Without this the ommatidial view silently produced nothing.
         self.retina = Retina()
 
+        self._load_brain()
+
         self.lock = threading.Lock()
         self.jpeg = {k: None for k in list(CAMERAS) + ["omma"]}
         # Only cameras the page is actually asking for get rendered, and they are
@@ -121,12 +159,124 @@ class NMFSim:
         self.sim_t = 0.0
         self.wall0 = time.time()
         self.drive, self.turn = 0.6, 0.0
+        # Both default on. `control` is the brain driving the legs; `smell` is
+        # whether the pads emit any odour. Turning smell off with control on is
+        # the control arm of the chemotaxis assay.
+        self.control = True
+        self.smell = True
         self.running = True
         # Wall-clock seconds spent in each part of the loop, so the cost of the
         # views can be read off a running server instead of guessed at.
         self.prof = dict(gait=0.0, phys=0.0, render=0.0, jpeg=0.0, omma=0.0,
-                         state=0.0, loop=0.0, n=0, rcall=0.0, rebuilds=0)
+                         state=0.0, loop=0.0, n=0, rcall=0.0, rebuilds=0,
+                         brain=0.0)
         self.prof_t0 = time.time()
+
+    def _load_brain(self):
+        """The MaleCNS connectome, and the soma positions used to draw it.
+
+        The brain costs about 0.69 ms of wall clock per millisecond simulated
+        (1.4x realtime on its own), so it is affordable next to the physics. It is
+        stepped on simulated time, in lockstep with the body, rather than on a
+        timer of its own.
+        """
+        self.brain = None
+        self.geom = None
+        self.odour = None
+        self.motor = {}
+        if not os.path.exists(BRAIN_NPZ):
+            print(f"  no {BRAIN_NPZ}; brain view disabled "
+                  f"(build it with sim/build_brain.py)", flush=True)
+            return
+        t0 = time.time()
+        self.brain = Brain(BRAIN_NPZ, rng=np.random.default_rng(7))
+        print(f"  brain: {self.brain.N:,} neurons loaded in {time.time() - t0:.1f} s",
+              flush=True)
+        print("  giving the pads their odours and measuring motor baselines ...",
+              flush=True)
+        self.odour = PadOdour(self.brain, self.dish.pad_xy,
+                              [n for (n, _p, _c) in PADS],
+                              rng=np.random.default_rng(2))
+        self.brain.measure_baseline(MOTOR_POOLS)
+        bl = self.brain.baseline
+        print(f"    legs rest at ~"
+              f"{np.mean([v for k, v in bl.items() if 'leg' in k]):.1f} Hz, "
+              f"proboscis {bl['mn_proboscis']:.1f} Hz", flush=True)
+        if not os.path.exists(GEOM_NPZ):
+            print(f"  no {GEOM_NPZ}; brain drawn without activity", flush=True)
+            return
+        g = np.load(GEOM_NPZ, allow_pickle=True)
+        sim_idx = g["sim_idx"]
+        stride = max(1, len(sim_idx) // ACTIVITY_POINTS)
+        sel = np.arange(0, len(sim_idx), stride)
+        self.geom = {
+            "xyz": np.asarray(g["xyz"], dtype=np.float32),
+            "group": np.asarray(g["group"], dtype=np.uint8),
+            "groups": [str(x) for x in g["groups"]],
+            "act_stride": int(stride),
+        }
+        self._act_sim_idx = sim_idx[sel]
+        self._brain_ms = 0.0
+        print(f"  geometry: {len(self.geom['xyz']):,} somata, "
+              f"{len(sel):,} streaming activity", flush=True)
+
+    def _read_motor(self):
+        """Forward drive and turn command, from the brain's own motor output."""
+        b = self.brain
+        left = float(np.mean([b.delta_rate("mn_leg_front_L"),
+                              b.delta_rate("mn_leg_mid_L"),
+                              b.delta_rate("mn_leg_hind_L")]))
+        right = float(np.mean([b.delta_rate("mn_leg_front_R"),
+                               b.delta_rate("mn_leg_mid_R"),
+                               b.delta_rate("mn_leg_hind_R")]))
+        leg = float(np.clip((left + right) / (2 * LEG_RATE_REF), 0.0, 1.0))
+        imbalance = float(np.clip((right - left) / LEG_RATE_REF, -1.0, 1.0))
+        drive = float(np.clip(leg + FORAGE_BIAS, 0.0, 1.0))
+        steer = float(b.steer_signal())
+        turn = float(np.clip(
+            STEER_GAIN * steer
+            + IMBALANCE_GAIN * imbalance
+            + WANDER_YAW * float(self.rng.normal(0.0, 1.0)),
+            -1.0, 1.0))
+        self.motor = {"leg_delta_L": round(left, 2), "leg_delta_R": round(right, 2),
+                      "steer": round(steer, 4),
+                      "proboscis_delta": round(float(b.delta_rate("mn_proboscis")), 2)}
+        return drive, turn
+
+    def _step_brain(self, sim_ms, speed_mm_s, touching_wall):
+        """Advance the brain by `sim_ms` of simulated time, in 1 ms steps.
+
+        The sensory input is what this body can actually report: ambient light,
+        proprioception scaled by how fast the fly is walking, and bristle
+        mechanoreception when it is against the wall. No odour is injected here -
+        the request pads are part of sim/world.py's arena, not this one - so the
+        activity shown is the resting network plus locomotor drive.
+        """
+        if self.brain is None:
+            return
+        self._brain_ms += sim_ms
+        n = int(self._brain_ms / DT_MS)
+        self._brain_ms -= n * DT_MS
+        d = self.sim.mj_data
+        x, y, th = float(d.qpos[0]), float(d.qpos[1]), self._heading()
+        for _ in range(min(n, 8)):          # cap: never spiral if we fall behind
+            self.brain.clear_input()
+            self.brain.inject("visual", LIGHT_DRIVE)
+            self.brain.inject("mechano_proprio",
+                              0.25 + 0.55 * min(1.0, speed_mm_s / MAX_SPEED))
+            if touching_wall:
+                self.brain.inject("mechano_tactile", WALL_DRIVE)
+            if self.odour is not None and self.smell:
+                self.odour.sense(x, y, th)
+            self.brain.step(excitability=1.0)
+
+    def _activity_b64(self):
+        """Firing rates of the streamed somata as base64 uint8, 25 Hz saturating."""
+        if self.brain is None or self.geom is None:
+            return None
+        a = self.brain.rate[self._act_sim_idx] * (1000.0 / DT_MS) * (255.0 / 25.0)
+        np.clip(a, 0, 255, out=a)
+        return base64.b64encode(a.astype(np.uint8).tobytes()).decode("ascii")
 
     def _tune(self):
         m = self.sim.mj_model
@@ -223,12 +373,15 @@ class NMFSim:
         while self.running:
             k += 1
             t_a = time.time()
-            # A placeholder wander until the MaleCNS brain is wired to this body:
-            # the drive/turn pair is exactly the interface the brain will supply.
-            turn_timer -= ctrl_dt
-            if turn_timer <= 0:
-                self.turn = float(self.rng.normal(0, 0.45))
-                turn_timer = float(self.rng.uniform(0.4, 1.4))
+            # Drive and turn now come from the brain itself, read after it has
+            # been stepped (below). Until the first step they stay at their
+            # initial values. If the brain failed to load, fall back to the
+            # wander so the body still does something visible.
+            if self.brain is None:
+                turn_timer -= ctrl_dt
+                if turn_timer <= 0:
+                    self.turn = float(self.rng.normal(0, 0.45))
+                    turn_timer = float(self.rng.uniform(0.4, 1.4))
             self.gait.step(ctrl_dt, self.drive, self.turn)
             self.gait.apply()
             t_b = time.time()
@@ -237,6 +390,14 @@ class NMFSim:
             # bottleneck and held the GIL hard enough to starve the web server.
             mujoco.mj_step(self.sim.mj_model, self.sim.mj_data, nstep=CONTROL_EVERY)
             t_c = time.time()
+            d0 = self.sim.mj_data
+            speed = float(np.linalg.norm(d0.qvel[:2]))
+            near_wall = float(np.hypot(d0.qpos[0], d0.qpos[1])) > DISH_R - 3.0
+            self._step_brain(ctrl_dt * 1000.0, speed, near_wall)
+            if self.brain is not None and self.control:
+                self.drive, self.turn = self._read_motor()
+            t_br = time.time()
+            self.prof["brain"] += t_br - t_c
             self.prof["gait"] += t_b - t_a
             self.prof["phys"] += t_c - t_b
             self.prof["n"] += 1
@@ -304,6 +465,19 @@ class NMFSim:
                         ],
                         "prof": self.profile_report(),
                     }
+                    if self.brain is not None:
+                        self.state["brain"] = {
+                            "n": int(self.brain.N),
+                            "rate": round(float(self.brain.rate.mean()) * 1000.0, 2),
+                            "alive": int(self.brain.alive.sum()),
+                            "control": bool(self.control),
+                            "smell": bool(self.smell),
+                            "near": list(self.odour.near) if self.odour else [],
+                            **self.motor,
+                        }
+                        act = self._activity_b64()
+                        if act is not None:
+                            self.state["act"] = act
                 self.prof["state"] += time.time() - t_j
             self.prof["loop"] += time.time() - t_a
 
@@ -337,6 +511,24 @@ def make_app(sim: NMFSim):
             return Response(status=503)
         return Response(buf, mimetype="image/jpeg",
                         headers={"Cache-Control": "no-store"})
+
+    @app.route("/geometry")
+    def geometry():
+        """Soma positions and group tags for the brain view, sent once."""
+        import json
+        g = sim.geom
+        if g is None:
+            return Response(json.dumps({"n": 0}), mimetype="application/json")
+        return Response(
+            json.dumps({
+                "n": int(len(g["xyz"])),
+                "xyz": base64.b64encode(g["xyz"].tobytes()).decode("ascii"),
+                "group": base64.b64encode(g["group"].tobytes()).decode("ascii"),
+                "groups": g["groups"],
+                "act_stride": g["act_stride"],
+            }),
+            mimetype="application/json",
+        )
 
     @app.route("/frame/<key>")
     def f_any(key):

@@ -139,6 +139,34 @@ def fix_clipping(sim):
     return sim.mj_model.vis.map.znear * extent, sim.mj_model.vis.map.zfar * extent
 
 
+# Keeping the fly inside the dish.
+#
+# Nothing on the fly collides with anything by the ordinary rules: its geoms ship
+# with contype=0 and conaffinity=0, and - measured - this model produces NO
+# dynamic contacts at all even with both masks forced to 1. Every contact it has,
+# including the feet on the floor, comes from an explicit <pair>, which is how
+# flygym wires the 55 ground contacts. So the wall could never stop the fly, and
+# it simply walked out of the arena: measured at r = 65.6 mm, and once 97 mm, in
+# a dish whose wall stands at 50 mm.
+#
+# The fix is to declare the pairs. Only the nine central body geoms are paired
+# against the wall - thorax, head, abdomen and mouthparts - which is enough to
+# stop the body passing through while keeping the pair count to 9 x 36 rather
+# than one for all 69 geoms.
+def add_wall_contacts(dish, fly_prefix="fly/"):
+    """Declare fly-against-wall contact pairs. Call after add_fly, before compiling."""
+    root = dish.mjcf_root
+    names = [g.name for g in root.geoms if g.name]
+    central = [n for n in names if n.startswith(fly_prefix + "c_")]
+    walls = [n for n in names if n.startswith("wall_")]
+    for w in walls:
+        for c in central:
+            pair = root.add_pair()
+            pair.geomname1 = w
+            pair.geomname2 = c
+    return len(walls) * len(central)
+
+
 def color_fly(sim, prefix="fly/"):
     """Tint the fly so it stands out from the floor."""
     m = sim.mj_model

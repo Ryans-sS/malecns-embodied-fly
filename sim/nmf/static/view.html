@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NeuroMechFly Dish</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
   :root{
     --bg:#f3f4f6; --card:#fff; --head:#f7f8fa; --line:#dfe3e8; --line2:#eceff2;
@@ -61,6 +62,14 @@
   .cams button:first-child{border-left:0}
   .cams button.on{background:var(--accent);color:#fff;font-weight:600}
   .cams button:hover:not(.on){background:#eef3f9}
+  #brainview{flex:1;min-height:0;background:#0d1218;position:relative;cursor:grab}
+  #brainview:active{cursor:grabbing}
+  #brainview canvas{display:block;width:100%;height:100%}
+  #legend{display:flex;flex-wrap:wrap;gap:4px 12px;padding:7px 13px;
+    border-top:1px solid var(--line2);background:var(--card)}
+  #legend span{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;
+    color:var(--dim)}
+  #legend i{width:8px;height:8px;border-radius:2px;display:inline-block}
 </style>
 </head>
 <body>
@@ -72,6 +81,7 @@
       <div class="metric"><b id="rt">—</b><span>realtime</span></div>
       <div class="metric"><b id="spd">—</b><span>speed</span></div>
       <div class="metric"><b id="con">—</b><span>contacts</span></div>
+      <div class="metric"><b id="brate">—</b><span>brain</span></div>
     </div>
     <span class="pill"><i></i>walking</span>
   </header>
@@ -92,8 +102,9 @@
         <div class="view"><img id="omma" alt="ommatidia"></div>
       </div>
       <div class="card">
-        <h2>Left eye camera <em>raw, before the retina</em></h2>
-        <div class="view"><img id="eye" alt="eye"></div>
+        <h2>Brain <span id="braininfo">—</span></h2>
+        <div id="brainview"></div>
+        <div id="legend"></div>
       </div>
     </div>
 
@@ -174,6 +185,12 @@ async function poll(){
       document.getElementById('trn').textContent=s.turn.toFixed(2);
       R=s.dish_r||50; pads=s.pads||[];
       path.push(s.pos); if(path.length>500) path.shift();
+      if(s.brain){
+        document.getElementById('brate').textContent=s.brain.rate.toFixed(2)+' Hz';
+        document.getElementById('braininfo').textContent=
+          s.brain.n.toLocaleString()+' neurons · '+s.brain.rate.toFixed(2)+' Hz mean';
+      }
+      paintActivity(s);
       document.getElementById('pads').innerHTML=pads.map(p=>
         `<div class="pad"><span class="sw" style="background:${COLORS[p.name]||'#999'}"></span>`
         +`<b>${p.name}</b><em>${p.x}, ${p.y}</em></div>`).join('');
@@ -207,8 +224,129 @@ document.querySelectorAll('.cams button').forEach(b=>{
 });
 refresh('main','/frame/hover');
 refresh('omma','/frame/omma');
-refresh('eye','/frame/eye');
 addEventListener('resize', draw);
+
+// ---------------------------------------------------------------- brain view
+// 139,662 soma positions from the MaleCNS connectome, drawn as a point cloud and
+// lit by each cell's live firing rate. Positions arrive once from /geometry;
+// rates arrive with every /state as a base64 uint8 block, strided across the set.
+const GROUP_COLORS={
+  optic:[0.30,0.52,0.86], central:[0.86,0.68,0.26], vnc:[0.26,0.74,0.56],
+  sensory:[0.98,0.56,0.20], motor:[0.95,0.30,0.34], mushroom_body:[0.80,0.42,0.92],
+  projection:[0.42,0.76,0.90], other:[0.55,0.58,0.64],
+};
+let bScene,bCam,bRenderer,bPoints,bColors,bBase,bActStride=1,bN=0,bSpin=0,bEl=0,bLit=0;
+
+function sizeBrain(){
+  const host=document.getElementById('brainview');
+  if(!host||!bRenderer) return;
+  const w=host.clientWidth||400, h=host.clientHeight||260;
+  bCam.aspect=w/Math.max(h,1); bCam.updateProjectionMatrix();
+  bRenderer.setSize(w,h,false);
+}
+
+function initBrain(){
+  const host=document.getElementById('brainview');
+  if(!host||typeof THREE==='undefined') return;
+  bScene=new THREE.Scene(); bScene.background=new THREE.Color(0x0d1218);
+  bCam=new THREE.PerspectiveCamera(42,1,0.1,4000);
+  bCam.position.set(0,120,560);
+  bRenderer=new THREE.WebGLRenderer({antialias:true});
+  bRenderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  host.appendChild(bRenderer.domElement);
+  sizeBrain();
+  addEventListener('resize',sizeBrain);
+
+  // drag to spin, wheel to zoom
+  let down=false,lx=0,ly=0;
+  host.addEventListener('mousedown',e=>{down=true;lx=e.clientX;ly=e.clientY;});
+  addEventListener('mouseup',()=>down=false);
+  addEventListener('mousemove',e=>{
+    if(!down) return;
+    bSpin-=(e.clientX-lx)*0.006;
+    bEl=Math.max(-0.95,Math.min(0.95,bEl+(e.clientY-ly)*0.005));
+    lx=e.clientX; ly=e.clientY;
+  });
+  host.addEventListener('wheel',e=>{
+    e.preventDefault();
+    bCam.position.multiplyScalar(e.deltaY>0?1.08:0.93);
+  },{passive:false});
+
+  fetch('/geometry').then(r=>r.json()).then(g=>{
+    if(!g.n){ document.getElementById('braininfo').textContent='no geometry'; return; }
+    bN=g.n; bActStride=g.act_stride;
+    const xyz=new Float32Array(Uint8Array.from(atob(g.xyz),c=>c.charCodeAt(0)).buffer);
+    const grp=Uint8Array.from(atob(g.group),c=>c.charCodeAt(0));
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.BufferAttribute(xyz,3));
+    bBase=new Float32Array(bN*3); bColors=new Float32Array(bN*3);
+    for(let i=0;i<bN;i++){
+      const c=GROUP_COLORS[g.groups[grp[i]]]||GROUP_COLORS.other;
+      for(let k=0;k<3;k++){ bBase[3*i+k]=c[k]; bColors[3*i+k]=c[k]*0.24; }
+    }
+    geo.setAttribute('color',new THREE.BufferAttribute(bColors,3));
+    // Size the points to the cloud, not to a guessed constant: the whole brain
+    // is only ~28 world units across, so a fixed 1.6 made every soma 6% of the
+    // brain's width and 139,662 of them under additive blending saturated the
+    // panel to a solid white blob with no group colour left in it.
+    geo.computeBoundingBox(); geo.computeBoundingSphere();
+    const c=geo.boundingSphere.center, R=geo.boundingSphere.radius;
+    bPoints=new THREE.Points(geo,new THREE.PointsMaterial({size:R/120,
+      vertexColors:true,transparent:true,opacity:0.92,sizeAttenuation:true,
+      blending:THREE.AdditiveBlending,depthWrite:false}));
+    bPoints.position.set(-c.x,-c.y,-c.z);
+    bCam.position.set(0,R*0.35,R*2.6);
+    bCam.far=R*12; bCam.updateProjectionMatrix();
+    bScene.add(bPoints);
+    document.getElementById('legend').innerHTML=g.groups.map(n=>{
+      const col=GROUP_COLORS[n]||GROUP_COLORS.other;
+      const hx='#'+col.map(v=>Math.round(v*255).toString(16).padStart(2,'0')).join('');
+      return `<span><i style="background:${hx}"></i>${n.replace('_',' ')}</span>`;
+    }).join('');
+  }).catch(e=>{
+    document.getElementById('braininfo').textContent='geometry unavailable';
+    console.warn('geometry',e);
+  });
+}
+
+function animBrain(){
+  requestAnimationFrame(animBrain);
+  if(!bPoints||!bRenderer) return;
+  bPoints.rotation.y=bSpin;
+  bCam.position.y=bEl*bCam.position.length()*0.8;
+  bCam.lookAt(0,0,0);
+  // Decay the lit cells back towards their resting tint. Only the streamed
+  // subset is ever lit, so only it needs decaying - walking all 419k colour
+  // components every frame was burning browser CPU that the simulation needed.
+  for(let kk=0;kk<bLit;kk++){
+    const j=3*(kk*bActStride);
+    if(j+2>=bN*3) break;
+    for(let k=0;k<3;k++){
+      const fl=bBase[j+k]*0.24;
+      if(bColors[j+k]>fl) bColors[j+k]+=(fl-bColors[j+k])*0.11;
+    }
+  }
+  bPoints.geometry.attributes.color.needsUpdate=true;
+  bRenderer.render(bScene,bCam);
+}
+
+function paintActivity(st){
+  if(!st.act||!bPoints) return;
+  const A=Uint8Array.from(atob(st.act),c=>c.charCodeAt(0));
+  bLit=A.length;
+  for(let kk=0;kk<A.length;kk++){
+    const i=kk*bActStride; if(i>=bN) break;
+    const v=A[kk]/255; if(v<=0) continue;
+    const lum=0.24+2.7*v, j=3*i;
+    bColors[j]=Math.min(1.8,bBase[j]*lum);
+    bColors[j+1]=Math.min(1.8,bBase[j+1]*lum);
+    bColors[j+2]=Math.min(1.8,bBase[j+2]*lum);
+  }
+  bPoints.geometry.attributes.color.needsUpdate=true;
+}
+
+initBrain();
+animBrain();
 </script>
 </body>
 </html>
